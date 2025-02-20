@@ -10,7 +10,24 @@ export const generateContent = async (req, res, next) => {
     logger.info('Content generation requested', { section });
     
     const llmService = new LLMService();
+
+       logger.debug('Initiating content enhancement', {
+        section,
+        originalContent: content,
+        contextData: {
+          role: context?.role,
+          industry: context?.industry,
+          experienceLevel: context?.experienceLevel
+        }
+      });
     const enhancedContent = await llmService.enhance(section, content, context, parameters);
+
+        logger.info('Content enhancement successful', {
+            section,
+            originalLength: content?.length,
+            enhancedLength: enhancedContent?.enhanced?.length,
+            metadata: enhancedContent?.metadata
+          });
     
     res.status(200).json({
       status: 'success',

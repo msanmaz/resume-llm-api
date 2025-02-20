@@ -31,7 +31,8 @@ app.use(express.urlencoded({ extended: true }));
 // Apply rate limiter
 app.use('/api', limiter);
 
-app.use('/api', routes);  // Register routes before error handling
+ // Register routes before error handling
+app.use('/api', routes); 
 
 
 // Error handling
