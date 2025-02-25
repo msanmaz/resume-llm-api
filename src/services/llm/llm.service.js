@@ -5,14 +5,21 @@ import { AppError } from '../../utils/errors/AppError.js';
 import logger from '../../utils/logger/index.js';
 
 export class LLMService {
-    constructor() {
+    constructor(openaiClient = null) {
         if (!config.openai.apiKey) {
             throw new AppError(500, 'OpenAI API key is not configured');
         }
 
-        this.openai = new OpenAI({
-            apiKey: config.openai.apiKey
-        });
+        // Use provided client or create a new one
+        // In tests, always provide a mock client to avoid real API calls
+        this.openai = openaiClient; 
+        
+        // Only create real client if none was provided
+        if (!this.openai) {
+            this.openai = new OpenAI({
+                apiKey: config.openai.apiKey
+            });
+        }
     }
 
     async enhance(section, content, context = {}, parameters = {}) {
@@ -30,23 +37,27 @@ export class LLMService {
                     temperature: parameters?.temperature,
                     style: parameters?.style,
                     focusAreas: parameters?.focusAreas
-                }
+                },
+                timestamp: new Date().toISOString()
             });
 
             const prompt = this.buildPrompt(section, content, context, parameters);
 
-                        logger.debug('Built prompt for OpenAI', {
-                            promptLength: prompt.length,
-                            section,
-                            context: JSON.stringify(context)
-                        });
-            
+            logger.debug('Built prompt for OpenAI', {
+                promptLength: prompt.length,
+                section,
+                context: JSON.stringify(context),
+                timestamp: new Date().toISOString()
+            });
+
             logger.debug('Initiating OpenAI request', {
                 section,
                 contentLength: content.length,
-                context: context ? JSON.stringify(context) : 'none'
+                context: context ? JSON.stringify(context) : 'none',
+                timestamp: new Date().toISOString()
             });
 
+            // Pass proper configuration to OpenAI API
             const completion = await this.openai.chat.completions.create({
                 model: "gpt-3.5-turbo",
                 messages: [
@@ -71,19 +82,20 @@ export class LLMService {
 
             logger.debug('OpenAI request successful', {
                 originalLength: content.length,
-                enhancedLength: enhancedContent.length
+                enhancedLength: enhancedContent.length,
+                timestamp: new Date().toISOString()
             });
 
-
-                        logger.info('Content enhancement completed', {
-                            section,
-                            originalLength: content.length,
-                            enhancedLength: enhancedContent.length,
-                            processingSummary: {
-                                hadMetrics: /\d+%|\d+x|\$\d+|\d+ [a-zA-Z]+/.test(enhancedContent),
-                                hadActionVerbs: /\b(developed|implemented|managed|created|achieved)\b/i.test(enhancedContent)
-                            }
-                        });
+            logger.info('Content enhancement completed', {
+                section,
+                originalLength: content.length,
+                enhancedLength: enhancedContent.length,
+                processingSummary: {
+                    hadMetrics: /\d+%|\d+x|\$\d+|\d+ [a-zA-Z]+/.test(enhancedContent),
+                    hadActionVerbs: /\b(developed|implemented|managed|created|achieved)\b/i.test(enhancedContent)
+                },
+                timestamp: new Date().toISOString()
+            });
 
             return {
                 original: content,
@@ -100,9 +112,16 @@ export class LLMService {
             logger.error('LLM service error', {
                 error: error.message,
                 section,
-                contentLength: content?.length
+                contentLength: content?.length,
+                timestamp: new Date().toISOString()
             });
 
+            // Preserve the original error type for testability
+            if (error instanceof AppError) {
+                throw error;
+            }
+            
+            // Handle API errors with meaningful messages
             if (error.response) {
                 throw new AppError(
                     error.response.status || 500,
@@ -112,35 +131,60 @@ export class LLMService {
                 throw new AppError(503, 'No response from OpenAI API');
             }
 
-            if (error instanceof AppError) {
-                throw error;
-            }
-
+            // Generic error fallback
             throw new AppError(500, 'Failed to generate content');
         }
     }
 
-    getSystemPrompt(parameters) {
-        return `You are an expert ATS-optimization and professional resume writing assistant. Your goal is to enhance resume content while:
-- Optimizing for ATS systems and keyword recognition
-- Maintaining professional and industry-appropriate tone
-- Emphasizing quantifiable achievements and metrics
-- Using strong action verbs and industry-specific terminology
-- Preserving important technical terms and keywords
-- Ensuring content is clear, concise, and impactful
+    getSystemPrompt(parameters = {}) {
+        const {
+            style = "professional",
+            focusAreas = ["keywords", "achievements"],
+            preserveKeywords = true
+        } = parameters;
 
-Focus on making the content more:
-1. Scannable by ATS systems
-2. Rich in relevant keywords
-3. Achievement-oriented with metrics
-4. Professional and well-structured`;
+        // Base system prompt
+        const basePrompt = `You are an expert ATS-optimization and professional resume writing assistant specializing in ${style} content. Your goal is to enhance resume content while:`;
+
+        // Core requirements
+        const coreRequirements = [
+            "Optimizing for ATS systems and keyword recognition",
+            "Maintaining professional and industry-appropriate tone",
+            "Emphasizing quantifiable achievements and metrics",
+            "Using strong action verbs and industry-specific terminology",
+            preserveKeywords ? "Preserving important technical terms and keywords" : "Optimizing keyword usage",
+            "Ensuring content is clear, concise, and impactful"
+        ];
+
+        // Focus areas based on parameters
+        const focusAreasMap = {
+            keywords: "Rich in relevant keywords and industry terminology",
+            achievements: "Achievement-oriented with clear impact statements",
+            metrics: "Quantified with specific metrics and results",
+            action_verbs: "Led with powerful action verbs",
+        };
+
+        const selectedFocusAreas = focusAreas
+            .filter(area => focusAreasMap[area])
+            .map(area => focusAreasMap[area]);
+
+        return `${basePrompt}
+    ${coreRequirements.map(req => `- ${req}`).join('\n')}
+    
+    Focus on making the content:
+    ${selectedFocusAreas.map((focus, i) => `${i + 1}. ${focus}`).join('\n')}
+    
+    Style Guide:
+    - Tone: ${style} and authoritative
+    - Format: Clear and scannable
+    - Length: Concise but impactful
+    - Keywords: ${preserveKeywords ? 'Preserve and enhance' : 'Optimize and standardize'}`;
     }
 
     buildPrompt(section, content, context = {}, parameters = {}) {
         const sectionPrompts = {
             work: this.buildWorkExperiencePrompt,
             summary: this.buildSummaryPrompt,
-            skills: this.buildSkillsPrompt,
             education: this.buildEducationPrompt,
             achievements: this.buildAchievementsPrompt
         };
@@ -192,40 +236,31 @@ ${context.industry ? `Industry: ${context.industry}` : ''}
 Please provide an enhanced version that is both impactful and ATS-friendly.`;
     }
 
-    buildSkillsPrompt(content, context, parameters) {
-        return `Enhance the following skills section, optimizing for ATS recognition:
-
-Original Content:
-${content}
-
-Requirements:
-1. Organize skills logically
-2. Include both technical and soft skills
-3. Use industry-standard terminology
-4. Ensure keyword optimization
-5. Remove any redundant skills
-
-Additional Context:
-${context.role ? `Target Role: ${context.role}` : ''}
-${context.industry ? `Industry: ${context.industry}` : ''}
-
-Please provide an enhanced version that maximizes ATS recognition while maintaining accuracy.`;
-    }
 
     buildEducationPrompt(content, context, parameters) {
-        return `Enhance the following education section, focusing on relevance and clarity:
-
-Original Content:
-${content}
-
-Requirements:
-1. Highlight relevant coursework and achievements
-2. Include academic honors if applicable
-3. Maintain clear formatting
-4. Include relevant technical skills or certifications
-5. Emphasize education-related achievements
-
-Please provide an enhanced version that clearly presents educational qualifications.`;
+        return `Enhance ONLY the description and achievements for this education entry. Do not include any headers, titles, or institution information.
+    
+    Original Content:
+    ${content}
+    
+    Enhancement Requirements:
+    1. Focus on relevant coursework that directly relates to industry applications
+    2. Highlight specific projects or research that demonstrate practical skills
+    3. Include technical competencies and tools learned
+    4. Mention academic achievements that show professional potential
+    5. Emphasize leadership or collaborative experiences
+    6. Include relevant certifications or specialized training
+    
+    Formatting Guidelines:
+    - Start each point with action verbs or key achievements
+    - Include specific technologies, methodologies, or tools where relevant
+    - Quantify achievements where possible (GPA, project outcomes, etc.)
+    - Keep descriptions concise but detailed
+    - Use industry-standard terminology for better ATS recognition
+    
+    IMPORTANT: Provide ONLY the enhanced bullet points. Do not include any headers, education titles, or institution information. Start directly with the achievement bullets.
+    
+    Please enhance while maintaining accuracy and avoiding exaggeration.`;
     }
 
     buildAchievementsPrompt(content, context, parameters) {
