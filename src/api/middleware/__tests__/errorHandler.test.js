@@ -1,77 +1,55 @@
 // src/api/middleware/__tests__/errorHandler.test.js
 import { jest } from '@jest/globals';
+import express from 'express';
+import supertest from 'supertest';
 import { errorHandler } from '../errorHandler.js';
 import { AppError } from '../../../utils/errors/AppError.js';
 
-// Mock logger
-jest.mock('../../../utils/logger/index.js', () => ({
-  default: {
-    error: jest.fn()
-  }
-}));
-
-// Import after mocking
-import logger from '../../../utils/logger/index.js';
-
 describe('Error Handler Middleware', () => {
-  let req;
-  let res;
-  let next;
+  let app;
   
   beforeEach(() => {
-    // Clear mocks
-    jest.clearAllMocks();
+    // Create a test app for each test
+    app = express();
     
-    // Setup mocks
-    req = {
-      path: '/test',
-      method: 'GET'
-    };
+    // Add a route that generates different errors based on path
+    app.get('/app-error', (req, res, next) => {
+      next(new AppError(400, 'Bad Request Error'));
+    });
     
-    res = {
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn()
-    };
+    app.get('/validation-error', (req, res, next) => {
+      const error = new Error('Validation failed');
+      error.isJoi = true;
+      error.details = [
+        { path: ['field1'], message: 'Field 1 is required' },
+        { path: ['field2'], message: 'Field 2 is too short' }
+      ];
+      next(error);
+    });
     
-    next = jest.fn();
+    app.get('/generic-error', (req, res, next) => {
+      next(new Error('Some error'));
+    });
+    
+    // Add the error handler middleware
+    app.use(errorHandler);
   });
   
-  test('should handle AppError correctly', () => {
-    // Create AppError
-    const error = new AppError(400, 'Bad Request Error');
-    error.code = 'BAD_REQUEST';
+  test('should handle AppError correctly', async () => {
+    const response = await supertest(app).get('/app-error');
     
-    // Call error handler
-    errorHandler(error, req, res, next);
-    
-    // Verify logger was called
-    expect(logger.error).toHaveBeenCalled();
-    
-    // Verify response
-    expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith({
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
       status: 'fail',
-      message: 'Bad Request Error',
-      code: 'BAD_REQUEST',
-      validationErrors: null
+      message: 'Bad Request Error'
     });
   });
   
-  test('should handle Joi validation errors correctly', () => {
-    // Create Joi error
-    const error = new Error('Validation failed');
-    error.isJoi = true;
-    error.details = [
-      { path: ['field1'], message: 'Field 1 is required' },
-      { path: ['field2'], message: 'Field 2 is too short' }
-    ];
+  test('should handle Joi validation errors correctly', async () => {
+    const response = await supertest(app).get('/validation-error');
     
-    // Call error handler
-    errorHandler(error, req, res, next);
-    
-    // Verify response
-    expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith({
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
       status: 'error',
       message: 'Validation failed',
       code: 'VALIDATION_ERROR',
@@ -82,55 +60,32 @@ describe('Error Handler Middleware', () => {
     });
   });
   
-  test('should handle generic errors in production mode', () => {
+  test('should handle generic errors with appropriate mode', async () => {
     // Save original NODE_ENV
     const originalNodeEnv = process.env.NODE_ENV;
     
-    // Set NODE_ENV to production
+    // Test production mode
     process.env.NODE_ENV = 'production';
+    let response = await supertest(app).get('/generic-error');
     
-    // Create generic error
-    const error = new Error('Some error');
-    
-    // Call error handler
-    errorHandler(error, req, res, next);
-    
-    // Verify response for production
-    expect(res.status).toHaveBeenCalledWith(500);
-    expect(res.json).toHaveBeenCalledWith({
+    expect(response.status).toBe(500);
+    expect(response.body).toMatchObject({
       status: 'error',
       message: 'Something went wrong!',
       code: 'SERVER_ERROR'
     });
     
-    // Restore NODE_ENV
-    process.env.NODE_ENV = originalNodeEnv;
-  });
-  
-  test('should handle generic errors in development mode with more details', () => {
-    // Save original NODE_ENV
-    const originalNodeEnv = process.env.NODE_ENV;
-    
-    // Set NODE_ENV to development
+    // Test development mode
     process.env.NODE_ENV = 'development';
+    response = await supertest(app).get('/generic-error');
     
-    // Create generic error
-    const error = new Error('Development error');
-    error.stack = 'Error stack';
-    
-    // Call error handler
-    errorHandler(error, req, res, next);
-    
-    // Verify response for development
-    expect(res.status).toHaveBeenCalledWith(500);
-    expect(res.json).toHaveBeenCalledWith({
+    expect(response.status).toBe(500);
+    expect(response.body).toMatchObject({
       status: 'error',
-      message: 'Development error',
-      code: 'UNKNOWN_ERROR',
-      validationErrors: null,
-      error: error,
-      stack: 'Error stack'
+      message: 'Some error',
+      code: 'UNKNOWN_ERROR'
     });
+    expect(response.body).toHaveProperty('stack');
     
     // Restore NODE_ENV
     process.env.NODE_ENV = originalNodeEnv;

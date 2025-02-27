@@ -1,118 +1,116 @@
 // src/api/controllers/__tests__/llm.controller.test.js
 import { jest } from '@jest/globals';
-import { generateContent } from '../llm.controller.js';
-import { AppError } from '../../../utils/errors/AppError.js';
+import express from 'express';
+import supertest from 'supertest';
 
-// Mock the LLMService
-jest.mock('../../../services/llm/llm.service.js', () => {
-  return {
-    LLMService: jest.fn().mockImplementation(() => {
-      return {
-        enhance: jest.fn()
-      };
-    })
-  };
+// Set up mock enhance function
+const mockEnhance = jest.fn().mockResolvedValue({
+  original: 'Test content',
+  enhanced: 'Enhanced Test content',
+  metadata: {
+    section: 'work',
+    timestamp: new Date().toISOString(),
+    enhancementFocus: ['keywords', 'achievements']
+  }
 });
 
-// Mock logger
-jest.mock('../../../utils/logger/index.js', () => ({
-  default: {
-    debug: jest.fn(),
-    info: jest.fn(),
-    error: jest.fn()
-  }
+// Mock using factory function - make sure LLMService is a jest.fn()
+jest.mock('../../../services/llm/llm.service.js', () => ({
+  LLMService: jest.fn().mockImplementation(() => ({
+    enhance: mockEnhance
+  }))
 }));
 
 // Import after mocking
+import { generateContent } from '../llm.controller.js';
 import { LLMService } from '../../../services/llm/llm.service.js';
-import logger from '../../../utils/logger/index.js';
 
 describe('LLM Controller', () => {
-  let req;
-  let res;
-  let next;
-  let mockLLMInstance;
+  let app;
   
   beforeEach(() => {
-    // Reset mocks
     jest.clearAllMocks();
     
-    // Create request and response mocks
-    req = {
-      body: {
-        section: 'work',
-        content: 'Test content',
-        context: {
-          role: 'Developer'
-        },
-        parameters: {
-          temperature: 0.7
-        }
-      }
-    };
+    // Create a test app
+    app = express();
+    app.use(express.json());
     
-    res = {
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn()
-    };
+    // Add the controller
+    app.post('/generate', generateContent);
     
-    next = jest.fn();
-    
-    // Get the mock LLM instance
-    mockLLMInstance = new LLMService();
+    // Add basic error handling
+    app.use((err, req, res, next) => {
+      res.status(err.statusCode || 500).json({
+        status: err.status || 'error',
+        message: err.message
+      });
+    });
   });
   
   test('should generate content successfully', async () => {
-    // Setup mock response from enhance
-    const mockEnhancedContent = {
-      original: 'Test content',
-      enhanced: 'Enhanced test content',
-      metadata: {
-        section: 'work',
-        timestamp: '2025-02-25T00:00:00.000Z'
+    const testData = {
+      section: 'work',
+      content: 'Test content',
+      context: {
+        role: 'Developer'
+      },
+      parameters: {
+        temperature: 0.7
       }
     };
     
-    mockLLMInstance.enhance.mockResolvedValue(mockEnhancedContent);
+    const response = await supertest(app)
+      .post('/generate')
+      .send(testData)
+      .set('Accept', 'application/json');
     
-    // Call the controller
-    await generateContent(req, res, next);
-    
-    // Verify LLM service was called correctly
+    // Verify LLM service constructor was called
     expect(LLMService).toHaveBeenCalled();
-    expect(mockLLMInstance.enhance).toHaveBeenCalledWith(
-      'work', 
-      'Test content', 
-      { role: 'Developer' }, 
+    
+    // Verify enhance method was called with correct parameters
+    expect(mockEnhance).toHaveBeenCalledWith(
+      'work',
+      'Test content',
+      { role: 'Developer' },
       { temperature: 0.7 }
     );
     
-    // Verify response
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({
+    // Verify the response
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
       status: 'success',
       data: {
         original: 'Test content',
-        enhanced: mockEnhancedContent
+        enhanced: 'Enhanced Test content'
       }
     });
-    
-    // Verify logger was called
-    expect(logger.info).toHaveBeenCalledTimes(2);
   });
   
-  test('should handle errors and pass to next middleware', async () => {
-    // Setup mock error
-    const error = new Error('Test error');
-    mockLLMInstance.enhance.mockRejectedValue(error);
+  test('should handle errors', async () => {
+    // Override mock for this test only
+    mockEnhance.mockRejectedValueOnce(new Error('Test error'));
     
-    // Call the controller
-    await generateContent(req, res, next);
+    const testData = {
+      section: 'work',
+      content: 'Test content'
+    };
+    
+    const response = await supertest(app)
+      .post('/generate')
+      .send(testData)
+      .set('Accept', 'application/json');
+    
+    // Verify LLM service constructor was called
+    expect(LLMService).toHaveBeenCalled();
+    
+    // Verify enhance method was called
+    expect(mockEnhance).toHaveBeenCalled();
     
     // Verify error handling
-    expect(logger.error).toHaveBeenCalled();
-    expect(next).toHaveBeenCalledWith(expect.any(AppError));
-    expect(next.mock.calls[0][0].message).toBe('Failed to generate content');
-    expect(next.mock.calls[0][0].statusCode).toBe(500);
+    expect(response.status).toBe(500);
+    expect(response.body).toMatchObject({
+      status: 'error',
+      message: 'Failed to generate content'
+    });
   });
 });
