@@ -2,6 +2,8 @@
 import express from 'express';
 import healthRoutes from './health.routes.js';
 import llmRoutes from './llm.routes.js';
+import { apiKeyAuth } from '../middleware/apiKeyAuth.js';
+
 
 const router = express.Router();
 
@@ -16,7 +18,8 @@ const routes = [
   },
   {
     path: '/llm',
-    route: llmRoutes
+    route: llmRoutes,
+    middleware: [apiKeyAuth]
   }
   // Future routes can be added here
   // {
@@ -31,7 +34,11 @@ const routes = [
 
 // Register all routes
 routes.forEach((route) => {
-  router.use(`/${API_VERSION}${route.path}`, route.route);
+  if (route.middleware) {
+    router.use(`/${API_VERSION}${route.path}`, ...route.middleware, route.route);
+  } else {
+    router.use(`/${API_VERSION}${route.path}`, route.route);
+  }
 });
 
 export default router;
