@@ -1,7 +1,7 @@
 // src/services/llm/llm.service.js
 import OpenAI from 'openai';
 import { config } from '../../config/environment.js';
-import { AppError } from '../../utils/errors/AppError.js';
+import { AppError } from '../../utils/errors/appError.js';
 import logger from '../../utils/logger/index.js';
 
 export class LLMService {

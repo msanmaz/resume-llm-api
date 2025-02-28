@@ -1,5 +1,5 @@
 // src/api/middleware/apiKeyAuth.js
-import { AppError } from '../../utils/errors/AppError.js';
+import { AppError } from '../../utils/errors/appError.js';
 import { config } from '../../config/environment.js';
 import logger from '../../utils/logger/index.js';
 

@@ -1,6 +1,6 @@
 // src/api/controllers/llm.controller.js
 import { LLMService } from '../../services/llm/llm.service.js';
-import { AppError } from '../../utils/errors/AppError.js';
+import { AppError } from '../../utils/errors/appError.js';
 import logger from '../../utils/logger/index.js';
 
 export const generateContent = async (req, res, next) => {

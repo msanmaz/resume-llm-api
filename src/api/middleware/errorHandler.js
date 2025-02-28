@@ -1,6 +1,6 @@
 // src/api/middleware/errorHandler.js
 import logger from '../../utils/logger/index.js';
-import { AppError } from '../../utils/errors/AppError.js';
+import { AppError } from '../../utils/errors/appError.js';
 
 // src/api/middleware/errorHandler.js
 export const errorHandler = (err, req, res, next) => {

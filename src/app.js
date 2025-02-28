@@ -8,7 +8,7 @@ import { errorHandler } from './api/middleware/errorHandler.js';
 import { limiter } from './api/middleware/rateLimiter.js';
 import routes from './api/routes/index.js';
 import { config } from './config/environment.js';
-import { AppError } from './utils/errors/AppError.js'
+import { AppError } from './utils/errors/appError.js'
 
 
 

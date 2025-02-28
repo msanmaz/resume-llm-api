@@ -1,5 +1,5 @@
 // src/api/middleware/validateRequest.js
-import { AppError } from '../../utils/errors/AppError.js';
+import { AppError } from '../../utils/errors/appError.js';
 
 export const validateRequest = (schema) => {
   return (req, res, next) => {
