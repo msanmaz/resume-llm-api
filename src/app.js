@@ -6,7 +6,6 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { errorHandler } from './api/middleware/errorHandler.js';
 import { limiter } from './api/middleware/rateLimiter.js';
-import { AppError } from './utils/errors/AppError.js';
 import routes from './api/routes/index.js';
 import { config } from './config/environment.js';
 
@@ -45,5 +44,18 @@ app.use(errorHandler);
 app.all('*', (req, res, next) => {
   next(new AppError(404, `Route ${req.originalUrl} not found`));
 });
+
+
+//setting this app here for now to fix build issues in render
+class AppError extends Error {
+  constructor(statusCode, message) {
+    super(message);
+    this.statusCode = statusCode;
+    this.status = `${statusCode}`.startsWith('4') ? 'fail' : 'error';
+    this.isOperational = true;
+
+    Error.captureStackTrace(this, this.constructor);
+  }
+}
 
 export const application = app;
