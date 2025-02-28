@@ -8,6 +8,7 @@ import { errorHandler } from './api/middleware/errorHandler.js';
 import { limiter } from './api/middleware/rateLimiter.js';
 import routes from './api/routes/index.js';
 import { config } from './config/environment.js';
+import { AppError } from '../../utils/errors/AppError.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -46,16 +47,5 @@ app.all('*', (req, res, next) => {
 });
 
 
-//setting this app here for now to fix build issues in render
-class AppError extends Error {
-  constructor(statusCode, message) {
-    super(message);
-    this.statusCode = statusCode;
-    this.status = `${statusCode}`.startsWith('4') ? 'fail' : 'error';
-    this.isOperational = true;
-
-    Error.captureStackTrace(this, this.constructor);
-  }
-}
 
 export const application = app;

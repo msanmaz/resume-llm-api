@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: resume-llm-api
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 18.0.0
+      - key: NODE_ENV
+        value: production
+    branch: main
+    healthCheckPath: /
+    disk:
+      name: resume-llm-api-storage
+      mountPath: /opt/render/project
+      sizeGB: 10
