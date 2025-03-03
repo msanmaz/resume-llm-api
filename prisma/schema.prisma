@@ -1,0 +1,56 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model EnhancementRequest {
+  id              String    @id @default(uuid())
+  correlationId   String    @unique
+  section         String
+  originalContent String    @db.Text
+  context         Json?
+  parameters      Json?
+  status          String    @default("pending")
+  createdAt       DateTime  @default(now())
+  completedAt     DateTime?
+  processingTimeMs Int?
+  ipAddress       String?
+  source          String?
+  result          EnhancementResult?
+
+  @@map("enhancement_requests")
+}
+
+model EnhancementResult {
+  id               String    @id @default(uuid())
+  requestId        String    @unique
+  request          EnhancementRequest @relation(fields: [requestId], references: [id])
+  enhancedContent  String    @db.Text
+  metadata         Json?
+  modelUsed        String?
+  tokensUsed       Int?
+  createdAt        DateTime  @default(now())
+
+  @@map("enhancement_results")
+}
+
+model ApiUsage {
+  id                   Int      @id @default(autoincrement())
+  date                 DateTime @db.Date
+  userId               String?
+  totalRequests        Int      @default(0)
+  successfulRequests   Int      @default(0)
+  failedRequests       Int      @default(0)
+  totalTokens          Int      @default(0)
+  averageProcessingTime Float?
+
+  @@unique([date, userId])
+  @@map("api_usage")
+}

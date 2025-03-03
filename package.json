@@ -7,16 +7,26 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "NODE_OPTIONS=--experimental-vm-modules jest"
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
+    "rabbitmq:install": "docker run -d --name resume-rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3-management",
+    "rabbitmq:start": "docker start resume-rabbitmq",
+    "rabbitmq:stop": "docker stop resume-rabbitmq",
+    "rabbitmq:dashboard": "echo 'RabbitMQ dashboard available at http://localhost:15672 (guest/guest)'"
   },
   "dependencies": {
+    "@prisma/client": "^6.4.1",
+    "amqplib": "^0.10.5",
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
     "express": "^4.18.2",
     "express-rate-limit": "^6.7.0",
+    "generic-pool": "^3.9.0",
     "helmet": "^7.0.0",
     "joi": "^17.9.2",
     "openai": "^4.0.0",
+    "redis": "^4.7.0",
+    "uuid": "^11.1.0",
     "winston": "^3.8.2"
   },
   "devDependencies": {
@@ -24,6 +34,7 @@
     "@babel/preset-env": "^7.21.5",
     "jest": "^29.5.0",
     "nodemon": "^2.0.22",
+    "prisma": "^6.4.1",
     "supertest": "^6.3.4"
   },
   "engines": {

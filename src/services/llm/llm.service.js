@@ -1,4 +1,3 @@
-// src/services/llm/llm.service.js
 import OpenAI from 'openai';
 import { config } from '../../config/environment.js';
 import { AppError } from '../../utils/errors/appError.js';
@@ -10,17 +9,42 @@ export class LLMService {
             throw new AppError(500, 'OpenAI API key is not configured');
         }
 
-        // Use provided client or create a new one
-        // In tests, always provide a mock client to avoid real API calls
+
         this.openai = openaiClient; 
         
-        // Only create real client if none was provided
         if (!this.openai) {
             this.openai = new OpenAI({
                 apiKey: config.openai.apiKey
             });
         }
     }
+
+    async enhanceStreaming(section, content, context = {}, parameters = {}) {
+        try {
+          logger.debug('Starting streaming enhancement', { 
+            section, 
+            contentLength: content?.length 
+          });
+      
+          const prompt = this.buildPrompt(section, content, context, parameters);
+      
+          const stream = await this.openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "system", content: this.getSystemPrompt(parameters) },
+              { role: "user", content: prompt }
+            ],
+            temperature: parameters.temperature || 0.7,
+            max_tokens: 1000,
+            stream: false
+          });
+      
+          return stream;
+        } catch (error) {
+          logger.error('LLM streaming error', { error: error.message });
+          throw error;
+        }
+      }
 
     async enhance(section, content, context = {}, parameters = {}) {
         try {
@@ -57,7 +81,6 @@ export class LLMService {
                 timestamp: new Date().toISOString()
             });
 
-            // Pass proper configuration to OpenAI API
             const completion = await this.openai.chat.completions.create({
                 model: "gpt-3.5-turbo",
                 messages: [
@@ -116,12 +139,10 @@ export class LLMService {
                 timestamp: new Date().toISOString()
             });
 
-            // Preserve the original error type for testability
             if (error instanceof AppError) {
                 throw error;
             }
             
-            // Handle API errors with meaningful messages
             if (error.response) {
                 throw new AppError(
                     error.response.status || 500,
@@ -131,7 +152,6 @@ export class LLMService {
                 throw new AppError(503, 'No response from OpenAI API');
             }
 
-            // Generic error fallback
             throw new AppError(500, 'Failed to generate content');
         }
     }
@@ -156,7 +176,6 @@ export class LLMService {
             "Ensuring content is clear, concise, and impactful"
         ];
 
-        // Focus areas based on parameters
         const focusAreasMap = {
             keywords: "Rich in relevant keywords and industry terminology",
             achievements: "Achievement-oriented with clear impact statements",

@@ -1,4 +1,3 @@
-// src/api/validators/llm.validator.js
 import Joi from 'joi';
 
 export const generateContentSchema = Joi.object({

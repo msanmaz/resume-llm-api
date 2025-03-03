@@ -23,7 +23,15 @@ export const config = {
   openai: {
     apiKey: process.env.OPENAI_API_KEY,
   },
-  apiKey: process.env.API_KEY || 'your-default-api-key-for-development',
+  apiKey: process.env.API_KEY || 'api key needed for development',
+  redis: {
+    url: process.env.REDIS_URL || 'redis://redis:6379',
+    jobExpiry: parseInt(process.env.REDIS_JOB_EXPIRY || (24 * 60 * 60)), // 24 hours in seconds
+    poolSize: parseInt(process.env.REDIS_POOL_SIZE || '10'), // Redis connection pool size
+    poolMin: parseInt(process.env.REDIS_POOL_MIN || '2'), // Minimum connections in pool
+    acquireTimeout: parseInt(process.env.REDIS_ACQUIRE_TIMEOUT || '5000'), // Timeout in ms for acquiring connection
+    idleTimeout: parseInt(process.env.REDIS_IDLE_TIMEOUT || '30000'), // Timeout in ms for idle connections
+  },
   cors: {
     origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -35,15 +43,25 @@ export const config = {
   },
   logging: {
     level: process.env.LOG_LEVEL || 'debug',
+  },
+  rabbitmq: {
+    url: process.env.RABBITMQ_URL || 'amqp://localhost',
+    queues: {
+      llmRequests: 'llm-enhancement-requests',
+      llmResults: 'llm-enhancement-results'
+    },
+    // how many messages a consumer will process concurrently
+    prefetch: parseInt(process.env.RABBITMQ_PREFETCH || '10'),
+    // Configure retry settings
+    retryAttempts: parseInt(process.env.RABBITMQ_RETRY_ATTEMPTS || '3'),
+    retryDelay: parseInt(process.env.RABBITMQ_RETRY_DELAY || '5000') // 5 seconds
   }
 };
-// Add some debug logging for the config
 console.log('Config:', {
   server: config.server,
   rateLimit: config.rateLimit
 });
 
-// Validate required environment variables
 const requiredEnvVars = ['OPENAI_API_KEY'];
 
 for (const envVar of requiredEnvVars) {

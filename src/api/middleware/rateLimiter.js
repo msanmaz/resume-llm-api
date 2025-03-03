@@ -1,4 +1,3 @@
-// src/api/middleware/rateLimiter.js
 import rateLimit from 'express-rate-limit';
 import { config } from '../../config/environment.js';
 

@@ -1,4 +1,3 @@
-// src/api/routes/index.js
 import express from 'express';
 import healthRoutes from './health.routes.js';
 import llmRoutes from './llm.routes.js';
