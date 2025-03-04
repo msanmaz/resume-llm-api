@@ -1,8 +1,8 @@
 import express from 'express';
-import { getRedisStatus } from '../controllers/redis-status.controller';
+import { getRedisStatus } from '../controllers/redis-status.controller.js';
 
 const router = express.Router();
 
-router.get('/redis-status', getRedisStatus);
+router.get('/', getRedisStatus);
 
 export default router;

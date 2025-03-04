@@ -1,7 +1,7 @@
 import express from 'express';
 import healthRoutes from './health.routes.js';
 import llmRoutes from './llm.routes.js';
-import redisRoutes from './redis-status.routes.js'
+import redisStatusRoutes from './redis-status.routes.js';
 import { apiKeyAuth } from '../middleware/apiKeyAuth.js';
 
 
@@ -22,7 +22,7 @@ const routes = [
     middleware: [apiKeyAuth]
   },{
     path: '/redis',
-    route: redisRoutes,
+    route: redisStatusRoutes,
     middleware: [apiKeyAuth]
   },
 

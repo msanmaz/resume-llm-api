@@ -1,4 +1,4 @@
-// src/api/controllers/health.controller.js
+// src/api/controllers/redis-status.controller.js
 import redisService from '../../services/storage/redis.service.js';
 
 export const getRedisStatus = async (req, res) => {
@@ -8,7 +8,16 @@ export const getRedisStatus = async (req, res) => {
         res.json({
             status: 'success',
             ping: pingResult,
-            connected: redisService.isConnected
+            connected: redisService.isConnected,
+            clientInfo: {
+                status: redisService.client.status,
+                options: {
+                    host: redisService.client.options.host,
+                    port: redisService.client.options.port,
+                    tls: !!redisService.client.options.tls,
+                    maxRetriesPerRequest: redisService.client.options.maxRetriesPerRequest
+                }
+            }
         });
     } catch (error) {
         res.status(500).json({
