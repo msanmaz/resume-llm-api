@@ -23,6 +23,7 @@
     "express-rate-limit": "^6.7.0",
     "generic-pool": "^3.9.0",
     "helmet": "^7.0.0",
+    "ioredis": "^5.5.0",
     "joi": "^17.9.2",
     "openai": "^4.0.0",
     "redis": "^4.7.0",

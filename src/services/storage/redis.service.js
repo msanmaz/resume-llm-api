@@ -1,4 +1,4 @@
-import { createClient } from 'redis';
+import Redis from 'ioredis';
 import logger from '../../utils/logger/index.js';
 import { config } from '../../config/environment.js';
 
@@ -26,17 +26,21 @@ class RedisService {
 
     this.connectionPromise = new Promise(async (resolve, reject) => {
       try {
-        logger.info('Connecting to Redis server', { url: config.redis.url });
+        logger.info('Connecting to Redis server', { 
+          url: config.redis.url.replace(/\/\/(.+?)@/, '//***@') // Mask credentials in logs
+        });
         
-        this.client = createClient({
-          url: config.redis.url,
-          socket: {
-            reconnectStrategy: (retries) => {
-              const delay = Math.min(retries * 100, 3000);
-              logger.info(`Redis reconnecting in ${delay}ms`, { retries });
-              return delay;
-            }
-          }
+        // Configure ioredis client
+        this.client = new Redis(config.redis.url, {
+          retryStrategy(times) {
+            const delay = Math.min(times * 100, 3000);
+            logger.info(`Redis reconnecting in ${delay}ms`, { times });
+            return delay;
+          },
+          // Enable TLS if the URL uses rediss://
+          tls: config.redis.url.startsWith('rediss://') ? {} : undefined,
+          maxRetriesPerRequest: 3,
+          enableReadyCheck: true
         });
 
         this.client.on('error', (err) => {
@@ -53,12 +57,15 @@ class RedisService {
           this.isConnected = true;
         });
 
-        await this.client.connect();
+        await this.client.connect?.(); // Only call connect if it exists (older ioredis doesn't need this)
         this.isConnected = true;
         logger.info('Connected to Redis successfully');
         resolve(this.client);
       } catch (error) {
-        logger.error('Failed to connect to Redis', { error: error.message });
+        logger.error('Failed to connect to Redis', { 
+          error: error.message,
+          stack: error.stack
+        });
         this.isConnected = false;
         this.connectionPromise = null;
         reject(error);
@@ -68,16 +75,13 @@ class RedisService {
     return this.connectionPromise;
   }
 
-  // The addJobChunk method is duplicated in your Redis service
-// Here's a single, corrected version that includes proper debug logging
-
-/**
- * Add a chunk to job's chunks array
- * @param {string} jobId - The job ID
- * @param {Object} chunk - The chunk data
- * @returns {Promise<boolean>} - Whether the operation was successful
- */
-async addJobChunk(jobId, chunk) {
+  /**
+   * Add a chunk to job's chunks array
+   * @param {string} jobId - The job ID
+   * @param {Object} chunk - The chunk data
+   * @returns {Promise<boolean>} - Whether the operation was successful
+   */
+  async addJobChunk(jobId, chunk) {
     console.log("DEBUG: addJobChunk called with:", {
       jobId,
       chunkType: typeof chunk,
@@ -101,7 +105,7 @@ async addJobChunk(jobId, chunk) {
         return true;
       }
       
-      const currentChunksStr = await client.hGet(`job:${jobId}`, 'chunks');
+      const currentChunksStr = await client.hget(`job:${jobId}`, 'chunks');
       console.log("DEBUG: Current chunks string:", {
         jobId,
         chunksStr: currentChunksStr ? `${currentChunksStr.substring(0, 50)}...` : 'null'
@@ -131,7 +135,7 @@ async addJobChunk(jobId, chunk) {
       }
       
       // Store updated chunks
-      await client.hSet(`job:${jobId}`, 'chunks', JSON.stringify(chunks));
+      await client.hset(`job:${jobId}`, 'chunks', JSON.stringify(chunks));
       
       console.log("DEBUG: Added chunk to job:", {
         jobId,
@@ -151,15 +155,13 @@ async addJobChunk(jobId, chunk) {
     }
   }
 
-
-
-/**
- * Store a job in Redis
- * @param {string} jobId - The job ID
- * @param {Object} data - The job data
- * @param {number} expireInSeconds - Time in seconds until expiration
- */
-async setJob(jobId, data, expireInSeconds = 24 * 60 * 60) {
+  /**
+   * Store a job in Redis
+   * @param {string} jobId - The job ID
+   * @param {Object} data - The job data
+   * @param {number} expireInSeconds - Time in seconds until expiration
+   */
+  async setJob(jobId, data, expireInSeconds = 24 * 60 * 60) {
     console.log("DEBUG: setJob called with:", {
       jobId,
       dataType: typeof data,
@@ -193,9 +195,9 @@ async setJob(jobId, data, expireInSeconds = 24 * 60 * 60) {
         
         // Serialize objects/arrays to JSON strings
         if (value !== null && typeof value === 'object') {
-          await client.hSet(`job:${jobId}`, key, JSON.stringify(value));
+          await client.hset(`job:${jobId}`, key, JSON.stringify(value));
         } else {
-          await client.hSet(`job:${jobId}`, key, String(value));
+          await client.hset(`job:${jobId}`, key, String(value));
         }
       }
       
@@ -213,28 +215,26 @@ async setJob(jobId, data, expireInSeconds = 24 * 60 * 60) {
     }
   }
 
-async getJobChunks(jobId) {
-  try {
-    const client = await this.connect();
-    
-    const chunksStr = await client.hGet(`job:${jobId}`, 'chunks');
-    if (!chunksStr) return [];
-    
+  async getJobChunks(jobId) {
     try {
-      return JSON.parse(chunksStr);
-    } catch (e) {
-      logger.error('Failed to parse chunks from Redis', { 
-        jobId, error: e.message 
-      });
-      return [];
+      const client = await this.connect();
+      
+      const chunksStr = await client.hget(`job:${jobId}`, 'chunks');
+      if (!chunksStr) return [];
+      
+      try {
+        return JSON.parse(chunksStr);
+      } catch (e) {
+        logger.error('Failed to parse chunks from Redis', { 
+          jobId, error: e.message 
+        });
+        return [];
+      }
+    } catch (error) {
+      logger.error('Failed to get job chunks', { error: error.message, jobId });
+      throw error;
     }
-  } catch (error) {
-    logger.error('Failed to get job chunks', { error: error.message, jobId });
-    throw error;
   }
-}
-
-
 
   /**
    * Get a job from Redis
@@ -250,7 +250,7 @@ async getJobChunks(jobId) {
         return null;
       }
       
-      const job = await client.hGetAll(`job:${jobId}`);
+      const job = await client.hgetall(`job:${jobId}`);
       
       // Parse JSON strings back to objects
       for (const key in job) {
@@ -278,7 +278,7 @@ async getJobChunks(jobId) {
    * @param {Object} updates - The fields to update
    * @returns {boolean} - Whether the update was successful
    */
-async updateJob(jobId, updates) {
+  async updateJob(jobId, updates) {
     console.log("DEBUG: updateJob called with:", {
       jobId,
       updatesType: typeof updates,
@@ -316,9 +316,9 @@ async updateJob(jobId, updates) {
         
         // Serialize objects/arrays to JSON strings
         if (value !== null && typeof value === 'object') {
-          await client.hSet(`job:${jobId}`, key, JSON.stringify(value));
+          await client.hset(`job:${jobId}`, key, JSON.stringify(value));
         } else {
-          await client.hSet(`job:${jobId}`, key, String(value));
+          await client.hset(`job:${jobId}`, key, String(value));
         }
       }
       
