@@ -2,6 +2,19 @@ import Redis from 'ioredis';
 import logger from '../../utils/logger/index.js';
 import { config } from '../../config/environment.js';
 
+const safeRedisUrl = (url) => {
+  if (!url) return 'undefined';
+  try {
+    // Parse the URL to mask the password but show other parts
+    const parsed = new URL(url);
+    return `${parsed.protocol}//${parsed.username ? '***' : ''}${parsed.password ? ':***@' : ''}${parsed.host}`;
+  } catch (e) {
+    return 'invalid-url-format';
+  }
+};
+
+
+
 /**
  * Service for Redis operations
  */
@@ -15,65 +28,176 @@ class RedisService {
   /**
    * Connect to Redis server
    */
-  async connect() {
-    if (this.isConnected) {
-      return this.client;
-    }
+async connect() {
+  console.log(`REDIS DEBUG: connect() called, isConnected=${this.isConnected}, has connectionPromise=${!!this.connectionPromise}`);
+  
+  if (this.isConnected) {
+    console.log('REDIS DEBUG: Already connected, returning existing client');
+    return this.client;
+  }
 
-    if (this.connectionPromise) {
-      return this.connectionPromise;
-    }
-
-    this.connectionPromise = new Promise(async (resolve, reject) => {
-      try {
-        logger.info('Connecting to Redis server', { 
-          url: config.redis.url.replace(/\/\/(.+?)@/, '//***@') // Mask credentials in logs
-        });
-        
-        // Configure ioredis client
-        this.client = new Redis(config.redis.url, {
-          retryStrategy(times) {
-            const delay = Math.min(times * 100, 3000);
-            logger.info(`Redis reconnecting in ${delay}ms`, { times });
-            return delay;
-          },
-          // Enable TLS if the URL uses rediss://
-          tls: config.redis.url.startsWith('rediss://') ? {} : undefined,
-          maxRetriesPerRequest: 3,
-          enableReadyCheck: true
-        });
-
-        this.client.on('error', (err) => {
-          logger.error('Redis client error', { error: err.message });
-          this.isConnected = false;
-        });
-
-        this.client.on('reconnecting', () => {
-          logger.info('Redis client reconnecting');
-        });
-
-        this.client.on('ready', () => {
-          logger.info('Redis client ready');
-          this.isConnected = true;
-        });
-
-        await this.client.connect?.(); // Only call connect if it exists (older ioredis doesn't need this)
-        this.isConnected = true;
-        logger.info('Connected to Redis successfully');
-        resolve(this.client);
-      } catch (error) {
-        logger.error('Failed to connect to Redis', { 
-          error: error.message,
-          stack: error.stack
-        });
-        this.isConnected = false;
-        this.connectionPromise = null;
-        reject(error);
-      }
-    });
-
+  if (this.connectionPromise) {
+    console.log('REDIS DEBUG: Connection in progress, returning promise');
     return this.connectionPromise;
   }
+
+  this.connectionPromise = new Promise(async (resolve, reject) => {
+    try {
+      // Log whether we're using the environment URL or default
+      const redisUrlSource = config.redis.url === process.env.REDIS_URL 
+        ? 'environment' 
+        : 'default fallback';
+      
+      console.log(`REDIS DEBUG: Redis URL source: ${redisUrlSource}`);
+      console.log(`REDIS DEBUG: Redis URL: ${safeRedisUrl(config.redis.url)}`);
+      
+      logger.info('Connecting to Redis server', { 
+        url: safeRedisUrl(config.redis.url)
+      });
+      
+      // Check if URL is valid before creating client
+      if (!config.redis.url) {
+        throw new Error('Redis URL is undefined or empty');
+      }
+      
+      // Explicitly log client creation attempt
+      console.log('REDIS DEBUG: Creating Redis client...');
+      
+      // Create client with specific TLS settings based on URL
+      const usesTLS = config.redis.url.startsWith('rediss://');
+      console.log(`REDIS DEBUG: TLS enabled: ${usesTLS}`);
+      
+      // Add debugging for reconnection strategy
+      const reconnectStrategy = (times) => {
+        const delay = Math.min(times * 100, 3000);
+        console.log(`REDIS DEBUG: Reconnect strategy called, attempt ${times}, delay ${delay}ms`);
+        return delay;
+      };
+      
+      // Configure detailed client options
+      const clientOptions = {
+        retryStrategy: reconnectStrategy,
+        tls: usesTLS ? {} : undefined,
+        maxRetriesPerRequest: 3,
+        enableReadyCheck: true,
+        // Add connection timeout of 10 seconds
+        connectTimeout: 10000,
+        // If your Redis requires auth but it's not in the URL
+        // password: process.env.REDIS_PASSWORD, // Uncomment if needed
+      };
+      
+      console.log(`REDIS DEBUG: Client options: ${JSON.stringify({
+        ...clientOptions,
+        tls: usesTLS ? 'enabled' : 'disabled'
+      })}`);
+      
+      // Create the Redis client
+      this.client = new Redis(config.redis.url, clientOptions);
+      console.log('REDIS DEBUG: Client created successfully');
+      
+      // Set up detailed event handlers for all states
+      this.client.on('connect', () => {
+        console.log('REDIS DEBUG: EVENT - Initial connection established (not ready yet)');
+      });
+      
+      this.client.on('error', (err) => {
+        console.log(`REDIS DEBUG: EVENT - Error: ${err.message}`);
+        console.log(`REDIS DEBUG: Error stack: ${err.stack}`);
+        logger.error('Redis client error', { 
+          error: err.message,
+          stack: err.stack
+        });
+        this.isConnected = false;
+      });
+
+      this.client.on('reconnecting', () => {
+        console.log('REDIS DEBUG: EVENT - Reconnecting...');
+        logger.info('Redis client reconnecting');
+      });
+
+      this.client.on('ready', () => {
+        console.log('REDIS DEBUG: EVENT - Client ready, connection fully established');
+        logger.info('Redis client ready');
+        this.isConnected = true;
+      });
+      
+      this.client.on('end', () => {
+        console.log('REDIS DEBUG: EVENT - Connection ended');
+        this.isConnected = false;
+      });
+      
+      // Add timeout for connection
+      const connectionTimeout = setTimeout(() => {
+        if (!this.isConnected) {
+          const timeoutError = new Error('Redis connection timeout after 10 seconds');
+          console.log(`REDIS DEBUG: ${timeoutError.message}`);
+          this.client.disconnect();
+          reject(timeoutError);
+        }
+      }, 10000);
+      
+      // Only call connect() for newer ioredis versions that require it
+      // For older versions, the connection is established automatically
+      try {
+        console.log('REDIS DEBUG: Attempting explicit connect()...');
+        if (typeof this.client.connect === 'function') {
+          await this.client.connect();
+          console.log('REDIS DEBUG: Explicit connect() succeeded');
+        } else {
+          console.log('REDIS DEBUG: No explicit connect() method, waiting for ready event');
+          // For older versions, wait for ready event
+          await new Promise((readyResolve) => {
+            const readyHandler = () => {
+              this.client.removeListener('error', errorHandler);
+              readyResolve();
+            };
+            
+            const errorHandler = (err) => {
+              this.client.removeListener('ready', readyHandler);
+              reject(err);
+            };
+            
+            this.client.once('ready', readyHandler);
+            this.client.once('error', errorHandler);
+          });
+        }
+        clearTimeout(connectionTimeout);
+      } catch (connectError) {
+        clearTimeout(connectionTimeout);
+        console.log(`REDIS DEBUG: Connect error: ${connectError.message}`);
+        console.log(`REDIS DEBUG: Connect error stack: ${connectError.stack}`);
+        throw connectError;
+      }
+      
+      // Test connection with a simple ping
+      try {
+        console.log('REDIS DEBUG: Testing connection with PING...');
+        const pingResult = await this.client.ping();
+        console.log(`REDIS DEBUG: PING result: ${pingResult}`);
+      } catch (pingError) {
+        console.log(`REDIS DEBUG: PING failed: ${pingError.message}`);
+        throw pingError;
+      }
+      
+      this.isConnected = true;
+      console.log('REDIS DEBUG: Connection fully established and verified');
+      logger.info('Connected to Redis successfully');
+      resolve(this.client);
+    } catch (error) {
+      console.log(`REDIS DEBUG: Connection failed: ${error.message}`);
+      console.log(`REDIS DEBUG: Error stack: ${error.stack}`);
+      logger.error('Failed to connect to Redis', { 
+        error: error.message,
+        stack: error.stack
+      });
+      this.isConnected = false;
+      this.connectionPromise = null;
+      reject(error);
+    }
+  });
+
+  return this.connectionPromise;
+}
 
   /**
    * Add a chunk to job's chunks array
